@@ -11,17 +11,21 @@ if st.button("Generate"):
     if topic.strip() == "":
         st.warning("Please enter a topic first!")
     else:
-        with st.spinner("Writing story and generating image..."):
+        with st.spinner("✍️ Writing story and generating image..."):
             graph = build_graph()
             result = graph.invoke({
                 "topic": topic,
                 "story": "",
                 "image_prompt": "",
-                "image_url": ""
+                "image_url": "",
+                "next": ""
             })
 
         st.markdown("## 📖 Story")
         st.write(result["story"])
 
-        st.markdown("## 🎨 Image")
-        st.image(result["image_url"], caption=result["image_prompt"])
+        st.markdown("## 🎨 Image") 
+        if result["image_url"]:
+            st.image(result["image_url"], width='stretch')
+        else:
+            st.warning("Image generation failed or timed out.")

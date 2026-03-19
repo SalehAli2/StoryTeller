@@ -8,6 +8,10 @@ from langchain_core.messages import (
 
 from dotenv import load_dotenv
 import urllib.parse
+import requests
+import base64
+import random
+import time
 import os
 
 class OrchestraState(TypedDict):
@@ -15,11 +19,21 @@ class OrchestraState(TypedDict):
     story: str #filled by story writer node
     image_prompt: str #extracted from story
     image_url: str #filled by image generator node
+    next: str
+
+    
+def orchestrator_node(state: OrchestraState) -> OrchestraState:
+    if not state["story"]:
+        state["next"] = "story_writer"
+    elif not state["image_url"]:
+        state["next"] = "image_generator"
+    else:
+        state["next"] = "end"
+    return state
 
 load_dotenv()
-print("API KEY:", os.getenv("GOOGLE_API_KEY"))
-from langchain_google_genai import ChatGoogleGenerativeAI
-llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.7)
+from langchain_groq import ChatGroq
+llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0.7)
 def story_writer_node(state: OrchestraState) -> OrchestraState:
     response = llm.invoke([
         SystemMessage(content = "You are a creative story writer."),
@@ -39,7 +53,30 @@ def story_writer_node(state: OrchestraState) -> OrchestraState:
     return {**state, "story": story.strip(), "image_prompt": image_prompt}
 
 
+HF_API_KEY = os.getenv("HF_API_KEY")
+
 def image_generator_node(state: OrchestraState) -> OrchestraState:
-    encoded_prompt = urllib.parse.quote(state["image_prompt"])
-    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=768&height=512&nologo=true"
-    return {**state, "image_url": image_url}
+    prompt = state.get("image_prompt") or state.get("topic") or "a magical story scene"
+    prompt_short = prompt[:300].replace("\n", " ").strip()
+
+    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+    payload = {"inputs": prompt_short}
+
+    try:
+        response = requests.post(
+                "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell",
+                headers=headers,
+                json=payload,
+                timeout=60
+                )
+        if response.status_code == 200:
+            img_b64 = base64.b64encode(response.content).decode("utf-8")
+            state["image_url"] = f"data:image/jpeg;base64,{img_b64}"
+        else:
+            print(f"HF error: {response.status_code} - {response.text}")
+            state["image_url"] = None
+    except Exception as e:
+        print(f"Image generation failed: {e}")
+        state["image_url"] = None
+
+    return state
